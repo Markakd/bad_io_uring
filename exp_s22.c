@@ -45,7 +45,8 @@
 #define PIPE_PAGE_NUM 0x600
 #define CPU 0
 
-// i realized using assert in AARCH64 causing a lot of bugs...
+// #define PATCHED
+
 #define CHECK(a, b)                                                            \
   do {                                                                         \
     if (a != b)                                                                \
@@ -509,10 +510,7 @@ static void loop(void) {
       exit(1);
     if (pid == 0) {
 #ifdef PATCHED
-      if (add_key("user", "123", "hehe", 4, KEY_SPEC_THREAD_KEYRING) < 0) {
-        perror("add key");
-        exit(0);
-      }
+      setuid(getuid());
 #endif
       printf("in trigger process\n");
       do_trigger();
