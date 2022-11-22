@@ -50,3 +50,4 @@ cd /data/local/tmp
 ./exp pixel.kallsyms
 ```
 
+Enjoy your root shell :)
