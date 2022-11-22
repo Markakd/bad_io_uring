@@ -1,4 +1,16 @@
 # Bad IO_uring
+## Build the exploit
+
+Make sure the [Android NDK](https://developer.android.com/ndk) is installed. For pixel 6,
+```bash
+make pixel
+```
+
+For samsung s22,
+```bash
+make s22
+```
+
 ## How to use the exploit
 The exploit is written to support different versions of kernels. In order to port the exploit to a different kernel, you need to extract the symbol file of the target kernel.
 
