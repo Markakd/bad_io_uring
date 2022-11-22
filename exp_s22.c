@@ -45,7 +45,7 @@
 #define PIPE_PAGE_NUM 0x600
 #define CPU 0
 
-// #define PATCHED
+#define PATCHED
 
 #define CHECK(a, b)                                                            \
   do {                                                                         \
