@@ -1,4 +1,7 @@
 # Bad IO_uring
+
+https://www.blackhat.com/us-23/briefings/schedule/index.html#bad-io_uring-a-new-era-of-rooting-for-android-32243
+
 ## Build the exploit
 
 Make sure the [Android NDK](https://developer.android.com/ndk) is installed. For pixel 6,
